@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Shorten URLs{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <h1>Shorten any URL</h1>
+    <p>Create short, trackable links with real-time analytics. Paste a URL below to get started.</p>
+</div>
+
+<div class="shorten-form">
+    <div class="api-key-bar">
+        <label>API Key</label>
+        <input type="text" class="form-input" id="apiKey" placeholder="sk_live_..." autocomplete="off">
+    </div>
+
+    <form id="shortenForm" onsubmit="return handleShorten(event)">
+        <div class="url-input-group">
+            <input type="url" class="form-input" id="urlInput" placeholder="https://example.com/your-very-long-url" required>
+            <button type="submit" class="btn btn-primary" id="shortenBtn">Shorten</button>
+        </div>
+
+        <div class="options-toggle" onclick="toggleOptions()">
+            <span id="optionsArrow">&#9654;</span> Advanced options
+        </div>
+
+        <div class="options-panel" id="optionsPanel">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Custom alias (optional)</label>
+                    <input type="text" class="form-input" id="customAlias" placeholder="my-custom-link" pattern="[a-zA-Z0-9\-]{3,30}">
+                </div>
+                <div class="form-group">
+                    <label>Expires in (hours, optional)</label>
+                    <input type="number" class="form-input" id="expiresIn" placeholder="24" min="1" max="8760">
+                </div>
+            </div>
+        </div>
+    </form>
+
+    <div class="result-box" id="resultBox">
+        <div class="result-url"><a id="resultUrl" href="#" target="_blank"></a></div>
+        <div class="result-original" id="resultOriginal"></div>
+        <button class="btn btn-primary copy-btn" id="copyBtn" onclick="copyResult()">Copy URL</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const BASE = window.location.origin;
+
+function toggleOptions() {
+    const panel = document.getElementById('optionsPanel');
+    const arrow = document.getElementById('optionsArrow');
+    panel.classList.toggle('open');
+    arrow.innerHTML = panel.classList.contains('open') ? '&#9660;' : '&#9654;';
+}
+
+async function handleShorten(e) {
+    e.preventDefault();
+    const apiKey = document.getElementById('apiKey').value.trim();
+    if (!apiKey) { showToast('Please enter your API key', 'error'); return false; }
+
+    const url = document.getElementById('urlInput').value.trim();
+    const customAlias = document.getElementById('customAlias').value.trim();
+    const expiresIn = document.getElementById('expiresIn').value.trim();
+
+    const body = { url };
+    if (customAlias) body.custom_alias = customAlias;
+    if (expiresIn) body.expires_in_hours = parseInt(expiresIn);
+
+    const btn = document.getElementById('shortenBtn');
+    btn.innerHTML = '<span class="spinner"></span>';
+    btn.disabled = true;
+
+    try {
+        const res = await fetch(`${BASE}/shorten`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Request failed');
+
+        const localUrl = `${BASE}/${data.code}`;
+        document.getElementById('resultUrl').textContent = localUrl;
+        document.getElementById('resultUrl').href = localUrl;
+        document.getElementById('resultOriginal').textContent = data.original_url;
+        document.getElementById('resultBox').classList.add('visible');
+        document.getElementById('copyBtn').textContent = 'Copy URL';
+        document.getElementById('copyBtn').classList.remove('copied');
+
+        localStorage.setItem('api_key', apiKey);
+    } catch (err) {
+        showToast(err.message, 'error');
+    } finally {
+        btn.innerHTML = 'Shorten';
+        btn.disabled = false;
+    }
+    return false;
+}
+
+function copyResult() {
+    const url = document.getElementById('resultUrl').textContent;
+    navigator.clipboard.writeText(url).then(() => {
+        const btn = document.getElementById('copyBtn');
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy URL'; btn.classList.remove('copied'); }, 2000);
+    });
+}
+
+function showToast(msg, type) {
+    let container = document.querySelector('.toast-container');
+    if (!container) { container = document.createElement('div'); container.className = 'toast-container'; document.body.appendChild(container); }
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = msg;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    const saved = localStorage.getItem('api_key');
+    if (saved) document.getElementById('apiKey').value = saved;
+});
+</script>
+{% endblock %}

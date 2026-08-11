@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block title %}Analytics — /{{ code }}{% endblock %}
+
+{% block content %}
+<div class="api-key-bar" id="apiKeyBar" style="display:none">
+    <label>API Key</label>
+    <input type="text" class="form-input" id="apiKey" placeholder="sk_live_..." autocomplete="off">
+    <button class="btn btn-primary btn-sm" onclick="loadAnalytics()">Load</button>
+</div>
+
+<div id="analyticsContent">
+    <div class="empty-state">
+        <div class="spinner" style="width:24px;height:24px;border-width:3px;border-color:rgba(108,92,231,0.3);border-top-color:var(--accent)"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const BASE = window.location.origin;
+const CODE = "{{ code }}";
+const COLORS = ['#6c5ce7','#00d2a0','#ffd166','#ff6b6b','#54a0ff','#ff9ff3','#a29bfe','#fdcb6e','#e17055','#00b894'];
+
+async function loadAnalytics() {
+    const apiKey = document.getElementById('apiKey').value.trim();
+    if (!apiKey) { showToast('Please enter your API key', 'error'); return; }
+    localStorage.setItem('api_key', apiKey);
+
+    const container = document.getElementById('analyticsContent');
+    container.innerHTML = '<div class="empty-state"><div class="spinner" style="width:24px;height:24px;border-width:3px;border-color:rgba(108,92,231,0.3);border-top-color:var(--accent)"></div></div>';
+
+    try {
+        const res = await fetch(`${BASE}/analytics/${CODE}?days=30`, { headers: { 'X-API-Key': apiKey } });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Failed'); }
+        const data = await res.json();
+        render(data);
+    } catch (err) {
+        showToast(err.message, 'error');
+        container.innerHTML = `<div class="empty-state"><h3>Failed to load analytics</h3><p>${err.message}</p></div>`;
+    }
+}
+
+function render(d) {
+    const created = new Date(d.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    const topCountry = d.clicks_by_country.length ? d.clicks_by_country[0].country : '-';
+    const topBrowser = Object.keys(d.clicks_by_browser).length ? Object.entries(d.clicks_by_browser).sort((a,b) => b[1]-a[1])[0][0] : '-';
+
+    const deviceEntries = Object.entries(d.clicks_by_device);
+    const browserEntries = Object.entries(d.clicks_by_browser).sort((a,b) => b[1]-a[1]).slice(0,6);
+    const osEntries = Object.entries(d.clicks_by_os).sort((a,b) => b[1]-a[1]).slice(0,6);
+
+    let html = `
+    <div class="analytics-header fade-in">
+        <div>
+            <h1>Analytics <span class="code-badge">/${CODE}</span></h1>
+            <p class="analytics-meta">${d.original_url}</p>
+        </div>
+        <a href="/dashboard" class="btn btn-ghost btn-sm">&larr; All URLs</a>
+    </div>
+
+    <div class="stats-grid fade-in">
+        <div class="stat-card">
+            <div class="stat-value">${d.total_clicks.toLocaleString()}</div>
+            <div class="stat-label">Total Clicks</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">${topCountry}</div>
+            <div class="stat-label">Top Country</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">${topBrowser}</div>
+            <div class="stat-label">Top Browser</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">${created}</div>
+            <div class="stat-label">Created</div>
+        </div>
+    </div>
+
+    <div class="charts-grid fade-in">
+        <!-- Clicks over time -->
+        <div class="chart-card full-width">
+            <h3>Clicks Over Time (last 30 days)</h3>
+            <div class="chart-container tall">${renderBarChart(d.clicks_by_day.map(x => ({label: formatDate(x.date), value: x.count})))}</div>
+        </div>
+
+        <!-- Clicks by country -->
+        <div class="chart-card">
+            <h3>Top Countries</h3>
+            <div class="chart-container">${renderHBars(d.clicks_by_country.slice(0,6).map(x => ({name: x.country, count: x.count})), 0)}</div>
+        </div>
+
+        <!-- Top referrers -->
+        <div class="chart-card">
+            <h3>Top Referrers</h3>
+            <div class="chart-container">${renderHBars(d.top_referrers.slice(0,6).map(x => ({name: x.referrer, count: x.count})), 1)}</div>
+        </div>
+
+        <!-- Device breakdown -->
+        <div class="chart-card">
+            <h3>Devices</h3>
+            <div class="chart-container">${renderDonut(deviceEntries, 0)}</div>
+        </div>
+
+        <!-- Browser breakdown -->
+        <div class="chart-card">
+            <h3>Browsers</h3>
+            <div class="chart-container">${renderDonut(browserEntries, 3)}</div>
+        </div>
+
+        <!-- OS breakdown -->
+        <div class="chart-card">
+            <h3>Operating Systems</h3>
+            <div class="chart-container">${renderDonut(osEntries, 6)}</div>
+        </div>
+
+        <!-- Hourly distribution -->
+        <div class="chart-card">
+            <h3>Clicks by Hour (UTC)</h3>
+            <div class="chart-container">${renderHourlyChart(d.clicks_by_hour)}</div>
+        </div>
+    </div>`;
+
+    document.getElementById('analyticsContent').innerHTML = html;
+}
+
+function renderBarChart(items) {
+    if (!items.length) return '<div class="empty-state" style="padding:20px"><p>No click data yet</p></div>';
+    const max = Math.max(...items.map(x => x.value), 1);
+    let html = '<div class="bar-chart">';
+    for (const item of items) {
+        const pct = (item.value / max) * 100;
+        html += `<div class="bar-group">
+            <div class="bar-value">${item.value}</div>
+            <div class="bar" style="height:${Math.max(pct, 2)}%"></div>
+            <div class="bar-label">${item.label}</div>
+        </div>`;
+    }
+    return html + '</div>';
+}
+
+function renderHourlyChart(items) {
+    const hourMap = {};
+    for (const x of items) hourMap[x.hour] = x.count;
+    const data = [];
+    for (let h = 0; h < 24; h++) data.push({ label: `${h}`, value: hourMap[h] || 0 });
+    const max = Math.max(...data.map(x => x.value), 1);
+    let html = '<div class="bar-chart">';
+    for (const item of data) {
+        const pct = (item.value / max) * 100;
+        html += `<div class="bar-group">
+            <div class="bar-value">${item.value || ''}</div>
+            <div class="bar" style="height:${Math.max(pct, 2)}%;background:var(--chart-5)"></div>
+            <div class="bar-label">${item.label}</div>
+        </div>`;
+    }
+    return html + '</div>';
+}
+
+function renderHBars(items, colorOffset) {
+    if (!items.length) return '<div class="empty-state" style="padding:20px"><p>No data</p></div>';
+    const max = Math.max(...items.map(x => x.count), 1);
+    let html = '<div class="h-bar-chart">';
+    items.forEach((item, i) => {
+        const pct = (item.count / max) * 100;
+        const color = COLORS[(i + colorOffset) % COLORS.length];
+        html += `<div class="h-bar-row">
+            <div class="h-bar-name" title="${item.name}">${item.name}</div>
+            <div class="h-bar-track"><div class="h-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+            <div class="h-bar-count">${item.count.toLocaleString()}</div>
+        </div>`;
+    });
+    return html + '</div>';
+}
+
+function renderDonut(entries, colorOffset) {
+    if (!entries.length) return '<div class="empty-state" style="padding:20px"><p>No data</p></div>';
+    const total = entries.reduce((s, e) => s + e[1], 0);
+    const size = 130, cx = size/2, cy = size/2, r = 48, stroke = 18;
+
+    let svg = `<div class="pie-container"><svg class="pie-svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">`;
+    const circ = 2 * Math.PI * r;
+    let offset = 0;
+    entries.forEach((e, i) => {
+        const pct = e[1] / total;
+        const dash = pct * circ;
+        const color = COLORS[(i + colorOffset) % COLORS.length];
+        svg += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="${stroke}"
+            stroke-dasharray="${dash} ${circ - dash}" stroke-dashoffset="${-offset}"
+            transform="rotate(-90 ${cx} ${cy})" />`;
+        offset += dash;
+    });
+    svg += `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
+        fill="var(--text-primary)" font-size="18" font-weight="800">${total}</text>`;
+    svg += '</svg>';
+
+    svg += '<div class="pie-legend">';
+    entries.forEach((e, i) => {
+        const color = COLORS[(i + colorOffset) % COLORS.length];
+        svg += `<div class="legend-item">
+            <span class="legend-dot" style="background:${color}"></span>
+            <span class="legend-label">${e[0]}</span>
+            <span class="legend-value">${e[1]}</span>
+        </div>`;
+    });
+    svg += '</div></div>';
+    return svg;
+}
+
+function formatDate(dateStr) {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
+
+function showToast(msg, type) {
+    let container = document.querySelector('.toast-container');
+    if (!container) { container = document.createElement('div'); container.className = 'toast-container'; document.body.appendChild(container); }
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = msg;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    const saved = localStorage.getItem('api_key');
+    if (saved) {
+        document.getElementById('apiKey').value = saved;
+        loadAnalytics();
+    } else {
+        document.getElementById('apiKeyBar').style.display = 'flex';
+        document.getElementById('analyticsContent').innerHTML = '<div class="empty-state"><h3>Enter your API key to view analytics</h3></div>';
+    }
+});
+</script>
+{% endblock %}
