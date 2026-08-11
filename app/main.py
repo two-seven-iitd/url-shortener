@@ -1,7 +1,9 @@
 import mimetypes
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 mimetypes.init()
@@ -15,6 +17,8 @@ from app.db import repository as db
 from app.models.schemas import HealthResponse, SiteStats
 from app.routers import analytics, frontend, redirect, shorten, urls
 
+STATIC_DIR = Path(__file__).parent / "static"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -26,6 +30,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="URL Shortener", lifespan=lifespan)
+
+
+@app.get("/static/css/style.css", include_in_schema=False)
+async def serve_css():
+    return FileResponse(STATIC_DIR / "css" / "style.css", media_type="text/css")
+
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
