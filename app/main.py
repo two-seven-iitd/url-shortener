@@ -1,7 +1,12 @@
+import mimetypes
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+
+mimetypes.init()
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("application/javascript", ".js")
 
 from app.cache.redis_cache import url_cache
 from app.db import database
